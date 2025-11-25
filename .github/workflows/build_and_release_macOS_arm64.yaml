@@ -1,4 +1,4 @@
-name: Build and release Aseprite (macOS x86)
+name: Build and release Aseprite (macOS Apple Silicon)
 
 on:
   push:
@@ -7,6 +7,7 @@ on:
     paths:
       - 'BuildLog.md'
   workflow_dispatch:
+
 env:
   BUILD_TYPE: Release
 
@@ -22,9 +23,9 @@ jobs:
         id: aseprite-link
         uses: a1393323447/fetch-release@main
         with:
-            group: aseprite
-            repo: aseprite
-            match: Aseprite-.*?-Source.zip
+          group: aseprite
+          repo: aseprite
+          match: Aseprite-.*?-Source.zip
 
   create-release:
     name: Create Release
@@ -45,17 +46,20 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
 
   build-aseprite:
-    name: Build Aseprite
+    name: Build Aseprite (Apple Silicon)
     needs: create-release
     permissions:
       contents: write
     runs-on: ${{ matrix.os }}
     strategy:
-        matrix:
-          os: [ macOS-13 ]
-        fail-fast: false
+      matrix:
+        # Apple Silicon runner
+        os: [ macos-14 ]
+      fail-fast: false
+
     steps:
-      - name: Install Dependencies
+      # Linux deps step kept but will not run on macOS
+      - name: Install Dependencies (Linux only)
         if: runner.os == 'Linux'
         shell: bash
         run: |
@@ -63,19 +67,34 @@ jobs:
           sudo apt-get install -y \
             libpixman-1-dev libfreetype6-dev libharfbuzz-dev zlib1g-dev \
             libx11-dev libxcursor-dev libxi-dev libgl1-mesa-dev libfontconfig1-dev
+
       - uses: actions/checkout@v4
+
       - name: Install Aseprite
         shell: bash
         run: |
-          git clone --recurse-submodules -j8 https://github.com/aseprite/aseprite --branch ${{ needs.create-release.outputs.release-tag }}
-      - name: Install Skia
+          git clone --recurse-submodules -j8 https://github.com/aseprite/aseprite \
+            --branch ${{ needs.create-release.outputs.release-tag }}
+
+      - name: Install Skia (Apple Silicon arm64)
         working-directory: aseprite
         shell: bash
         run: |
-          wget https://github.com/aseprite/skia/releases/download/m124-08a5439a6b/Skia-macOS-Release-x64.zip
-          unzip Skia-macOS-Release-x64.zip -d skia
+          # Use the same Skia tag as before, just switch to the arm64 binary.
+          # Check INSTALL.md or your reference script if you need a different tag.
+          SKIA_TAG="m124-08a5439a6b"
+          SKIA_ZIP="Skia-macOS-Release-arm64.zip"
+          SKIA_URL="https://github.com/aseprite/skia/releases/download/${SKIA_TAG}/${SKIA_ZIP}"
+
+          echo "Downloading Skia from: $SKIA_URL"
+          # curl works reliably on macOS runners
+          curl -L -o "$SKIA_ZIP" "$SKIA_URL"
+          mkdir -p skia
+          unzip -q "$SKIA_ZIP" -d skia
+
       - uses: aseprite/get-ninja@main
-      - name: Generating Makefiles
+
+      - name: Generating Makefiles (CMake for Apple Silicon)
         shell: bash
         working-directory: aseprite
         run: |
@@ -83,37 +102,52 @@ jobs:
           export laf_backend=skia
           export enable_scripting=on
 
-          export skia_arch=x64
+          # Apple Silicon architecture
+          export skia_arch=arm64
 
           cmake -S . -B build -G Ninja \
-            -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} \
-            -DCMAKE_OSX_DEPLOYMENT_TARGET=10.9 \
+            -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} \
+            -DCMAKE_OSX_ARCHITECTURES=arm64 \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0 \
+            -DCMAKE_OSX_SYSROOT=/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk \
             -DENABLE_TESTS=OFF \
             -DENABLE_SCRIPTING=$enable_scripting \
             -DENABLE_CCACHE=$enable_ccache \
             -DLAF_BACKEND=$laf_backend \
             -DSKIA_DIR=$(realpath skia) \
             -DOPENSSL_USE_STATIC_LIBS=ON \
-            -DSKIA_LIBRARY_DIR=$(realpath skia/out/Release-$skia_arch)
+            -DSKIA_LIBRARY_DIR=$(realpath skia/out/Release-$skia_arch) \
+            -DSKIA_LIBRARY=$(realpath skia/out/Release-$skia_arch/libskia.a)
+
       - name: Compiling
         shell: bash
         working-directory: aseprite
         run: |
           cd build && ninja
+
       - name: Clean Up Build folder
         working-directory: aseprite/build/bin
         shell: bash
-        run: find . -mindepth 1 ! \( -name 'aseprite' -o -name 'aseprite.exe' -o -name 'data' -prune \) -exec rm -rf {} +
+        run: |
+          find . -mindepth 1 ! \( -name 'aseprite' -o -name 'aseprite.exe' -o -name 'data' -prune \) -exec rm -rf {} +
+
       - name: Make portable zip
         working-directory: aseprite/build/bin
-        run: echo '# This file is here so Aseprite behaves as a portable program' > aseprite.ini
-      - name: Create release
+        shell: bash
+        run: |
+          echo '# This file is here so Aseprite behaves as a portable program' > aseprite.ini
+
+      - name: Create release archive
         working-directory: aseprite/build/bin
-        run: 7z -tzip a Aseprite-${{ needs.create-release.outputs.release-tag }}-${{ runner.os }}.zip *
+        shell: bash
+        run: |
+          # If 7z isn't available, you can switch this to "zip" instead.
+          7z -tzip a Aseprite-${{ needs.create-release.outputs.release-tag }}-${{ runner.os }}-arm64.zip *
+
       - name: Upload release
         uses: svenstaro/upload-release-action@v2
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: aseprite/build/bin/Aseprite-${{ needs.create-release.outputs.release-tag }}-${{ runner.os }}.zip
-          asset_name: Aseprite-${{ needs.create-release.outputs.release-tag }}-${{ runner.os }}.zip
+          file: aseprite/build/bin/Aseprite-${{ needs.create-release.outputs.release-tag }}-${{ runner.os }}-arm64.zip
+          asset_name: Aseprite-${{ needs.create-release.outputs.release-tag }}-${{ runner.os }}-arm64.zip
           tag: ${{ needs.create-release.outputs.release-tag }}
