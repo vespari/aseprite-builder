@@ -1,0 +1,63 @@
+      - name: Create Aseprite.app bundle (auto template)
+        shell: bash
+        id: package
+        run: |
+          set -euo pipefail
+
+          ROOT="$PWD"
+          APPDIR="$ROOT/Aseprite.app"
+
+          # 1) Make bundle directories
+          mkdir -p "$APPDIR/Contents/MacOS"
+          mkdir -p "$APPDIR/Contents/Resources"
+
+          # 2) Copy binary and data into the bundle
+          cp "$ASEPRITE/build/bin/aseprite" "$APPDIR/Contents/MacOS/"
+          cp -R "$ASEPRITE/build/bin/data" "$APPDIR/Contents/Resources/"
+
+          # Optional: copy an icon if you want one (can skip if you don't care)
+          # cp "$ASEPRITE/data/icons/ase256.png" "$APPDIR/Contents/Resources/ase256.png"
+
+          # 3) Generate Info.plist on the fly
+          LATEST_TAG="${{ steps.get-latest-tag.outputs.tag }}"
+
+          BUNDLE_ID="com.yourname.Aseprite"  # change this to something unique for you
+
+          cat > "$APPDIR/Contents/Info.plist" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleName</key>
+  <string>Aseprite</string>
+  <key>CFBundleDisplayName</key>
+  <string>Aseprite</string>
+  <key>CFBundleIdentifier</key>
+  <string>${BUNDLE_ID}</string>
+  <key>CFBundleExecutable</key>
+  <string>aseprite</string>
+  <key>CFBundlePackageType</key>
+  <string>APPL</string>
+  <key>CFBundleShortVersionString</key>
+  <string>${LATEST_TAG}</string>
+  <key>CFBundleVersion</key>
+  <string>${LATEST_TAG}</string>
+  <key>LSMinimumSystemVersion</key>
+  <string>11.0</string>
+  <key>LSApplicationCategoryType</key>
+  <string>public.app-category.graphics-design</string>
+  <key>NSHighResolutionCapable</key>
+  <true/>
+</dict>
+</plist>
+EOF
+
+          # 4) Clear quarantine flag just in case
+          xattr -r -d com.apple.quarantine "$APPDIR" || true
+
+          # 5) Zip the .app for release
+          ARTIFACT_NAME="Aseprite-${LATEST_TAG}-macOS-arm64.app.zip"
+          cd "$ROOT"
+          zip -r "$ARTIFACT_NAME" "Aseprite.app"
+
+          echo "artifact_name=$ARTIFACT_NAME" >> $GITHUB_OUTPUT
