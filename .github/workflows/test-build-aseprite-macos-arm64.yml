@@ -52,13 +52,24 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Ensure RELEASE_TOKEN is configured
+        shell: bash
+        run: |
+          if [ -z "${{ secrets.RELEASE_TOKEN }}" ]; then
+            echo "ERROR: RELEASE_TOKEN secret is not configured in this repository."
+            echo "Create a repository secret named RELEASE_TOKEN containing a PAT with repo and release permissions."
+            exit 1
+          else
+            echo "RELEASE_TOKEN is configured."
+          fi
+
       - name: Create GitHub Release (if missing)
         uses: ncipollo/release-action@v1
         with:
           tag: ${{ needs.fetch-aseprite-info.outputs.release-tag }}
           body: Aseprite-${{ needs.fetch-aseprite-info.outputs.release-tag }}
           skipIfReleaseExists: true
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.RELEASE_TOKEN }}
 
   build-aseprite:
     name: Build Aseprite (macOS 15 Apple Silicon)
@@ -189,7 +200,7 @@ jobs:
       - name: Upload release asset
         uses: svenstaro/upload-release-action@v2
         with:
-          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          repo_token: ${{ secrets.RELEASE_TOKEN }}
           file: ${{ steps.package.outputs.artifact_name }}
           asset_name: ${{ steps.package.outputs.artifact_name }}
           tag: ${{ needs.create-release.outputs.release-tag }}
