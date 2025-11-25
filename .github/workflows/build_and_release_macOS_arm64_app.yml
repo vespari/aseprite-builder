@@ -1,4 +1,4 @@
-name: Build and release Aseprite (macOS arm64) - .app
+name: Build and release Aseprite (macOS arm64) - app
 
 on:
   push:
@@ -25,6 +25,9 @@ jobs:
           group: aseprite
           repo: aseprite
           match: Aseprite-.*?-Source.zip
+      - name: Print Release Tag
+        run: |
+          echo "Release Tag found: ${{ steps.aseprite-link.outputs.release-tag }}"
 
   create-release:
     name: Create Release
@@ -105,6 +108,14 @@ jobs:
           mkdir -p Aseprite.app/Contents/Resources
           cp aseprite Aseprite.app/Contents/MacOS/
           cp -r data Aseprite.app/Contents/Resources/
+          # Find and copy the icon
+          ICON_PATH=$(find . -name "aseprite.icns" -print -quit)
+          if [ -n "$ICON_PATH" ]; then
+            cp "$ICON_PATH" Aseprite.app/Contents/Resources/aseprite.icns
+            echo "Icon found and copied."
+          else
+            echo "Icon not found."
+          fi
           cat > Aseprite.app/Contents/Info.plist <<EOF
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -118,6 +129,8 @@ jobs:
             <string>Aseprite</string>
             <key>CFBundleVersion</key>
             <string>${{ needs.create-release.outputs.release-tag }}</string>
+            <key>CFBundleIconFile</key>
+            <string>aseprite.icns</string>
             <key>CFBundlePackageType</key>
             <string>APPL</string>
             <key>CFBundleSignature</key>
@@ -129,11 +142,11 @@ jobs:
           EOF
       - name: Create release
         working-directory: aseprite/build/bin
-        run: 7z -tzip a Aseprite-${{ needs.create-release.outputs.release-tag }}-macOS-arm64.zip Aseprite.app
+        run: 7z -tzip a Aseprite-${{ needs.create-release.outputs.release-tag }}-macOS-arm64-app.zip Aseprite.app
       - name: Upload release
         uses: svenstaro/upload-release-action@v2
         with:
           repo_token: ${{ secrets.RELEASE_TOKEN }}
-          file: aseprite/build/bin/Aseprite-${{ needs.create-release.outputs.release-tag }}-macOS-arm64.zip
-          asset_name: Aseprite-${{ needs.create-release.outputs.release-tag }}-macOS-arm64.zip
+          file: aseprite/build/bin/Aseprite-${{ needs.create-release.outputs.release-tag }}-macOS-arm64-app.zip
+          asset_name: Aseprite-${{ needs.create-release.outputs.release-tag }}-macOS-arm64-app.zip
           tag: ${{ needs.create-release.outputs.release-tag }}
