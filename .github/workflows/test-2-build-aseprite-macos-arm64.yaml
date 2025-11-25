@@ -1,4 +1,4 @@
-      - name: Create Aseprite.app bundle (auto template)
+      - name: (test 2) Create Aseprite.app bundle (auto template)
         shell: bash
         id: package
         run: |
