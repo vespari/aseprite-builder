@@ -1,4 +1,4 @@
-name: Build and release Aseprite (macOS arm64)
+name: Build and release Aseprite (macOS arm64) - executable
 
 on:
   push:
@@ -103,11 +103,11 @@ jobs:
         run: echo '# This file is here so Aseprite behaves as a portable program' > aseprite.ini
       - name: Create release
         working-directory: aseprite/build/bin
-        run: 7z -tzip a Aseprite-${{ needs.create-release.outputs.release-tag }}-macOS-arm64.zip *
+        run: 7z -tzip a Aseprite-${{ needs.create-release.outputs.release-tag }}-macOS-arm64-executable.zip *
       - name: Upload release
         uses: svenstaro/upload-release-action@v2
         with:
           repo_token: ${{ secrets.RELEASE_TOKEN }}
-          file: aseprite/build/bin/Aseprite-${{ needs.create-release.outputs.release-tag }}-macOS-arm64.zip
-          asset_name: Aseprite-${{ needs.create-release.outputs.release-tag }}-macOS-arm64.zip
+          file: aseprite/build/bin/Aseprite-${{ needs.create-release.outputs.release-tag }}-macOS-arm64-executable.zip
+          asset_name: Aseprite-${{ needs.create-release.outputs.release-tag }}-macOS-arm64-executable.zip
           tag: ${{ needs.create-release.outputs.release-tag }}
