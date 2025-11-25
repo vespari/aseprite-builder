@@ -1,4 +1,4 @@
-name: Build and release Aseprite (macOS Apple Silicon)
+name: (Test 1) Build and release Aseprite (macOS Apple Silicon)
 
 on:
   push:
