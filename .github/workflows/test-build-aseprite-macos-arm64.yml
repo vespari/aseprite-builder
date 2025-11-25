@@ -1,0 +1,232 @@
+name: Build and release Aseprite (macOS Apple Silicon)
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'BuildLog.md'
+  workflow_dispatch:
+
+env:
+  BUILD_TYPE: RelWithDebInfo
+  SKIA_TAG: m124-08a5439a6b
+  SKIA_ZIP_NAME: Skia-macOS-Release-arm64.zip
+  SKIA_URL: https://github.com/aseprite/skia/releases/download/m124-08a5439a6b/Skia-macOS-Release-arm64.zip
+
+jobs:
+  build-aseprite:
+    name: Build Aseprite (Apple Silicon)
+    runs-on: macos-14
+    permissions:
+      contents: write
+    outputs:
+      aseprite-tag: ${{ steps.get-latest-tag.outputs.tag }}
+      artifact-name: ${{ steps.package.outputs.artifact_name }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Get the latest Aseprite release tag from GitHub API (like script 1)
+      - name: Get latest Aseprite tag
+        id: get-latest-tag
+        shell: bash
+        run: |
+          LATEST_RELEASE=$(curl -s https://api.github.com/repos/aseprite/aseprite/releases/latest \
+            | grep -o '"tag_name": "[^"]*"' \
+            | cut -d'"' -f4)
+          echo "Latest Aseprite tag: $LATEST_RELEASE"
+
+          ASEZIP=$(curl -s https://api.github.com/repos/aseprite/aseprite/releases/latest \
+            | grep -o '"browser_download_url": "[^"]*"' \
+            | cut -d'"' -f4)
+
+          echo "ASEZIP=$ASEZIP" >> $GITHUB_ENV
+          echo "tag=$LATEST_RELEASE" >> $GITHUB_OUTPUT
+
+      - name: Show basic environment info
+        shell: bash
+        run: |
+          echo "Runner OS: $RUNNER_OS"
+          echo "PWD: $(pwd)"
+          xcodebuild -version || true
+          cmake --version || true
+          ninja --version || true
+
+      - name: Ensure dependencies (cmake, ninja, libyaml) installed via Homebrew
+        shell: bash
+        run: |
+          if ! command -v brew >/dev/null 2>&1; then
+            echo "Homebrew not installed on this runner, installing..."
+            /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+            eval "$(/opt/homebrew/bin/brew shellenv)" || true
+          else
+            echo "Homebrew found."
+          fi
+
+          brew update
+          brew install cmake ninja libyaml || true
+
+          echo "cmake path: $(which cmake || echo 'not found')"
+          echo "ninja path: $(which ninja || echo 'not found')"
+
+      - name: Prepare directories and download Aseprite / Skia
+        id: prepare-deps
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          ROOT="$PWD"
+          DEPS="$ROOT/deps"
+          ASEPRITE="$DEPS/aseprite"
+          SKIA="$DEPS/skia"
+
+          echo "ROOT=$ROOT" >> $GITHUB_ENV
+          echo "DEPS=$DEPS" >> $GITHUB_ENV
+          echo "ASEPRITE=$ASEPRITE" >> $GITHUB_ENV
+          echo "SKIA=$SKIA" >> $GITHUB_ENV
+
+          mkdir -p "$DEPS"
+
+          echo "== Aseprite source =="
+          if [ -d "$ASEPRITE" ]; then
+            echo "Aseprite directory already exists: $ASEPRITE"
+          else
+            echo "Aseprite not found, downloading from: $ASEZIP"
+            rm -f "$TMPDIR/asesrc.zip"
+            curl "$ASEZIP" -L -o "$TMPDIR/asesrc.zip"
+            mkdir -p "$ASEPRITE"
+            # The asset is a .zip; use unzip instead of tar for CI reliability
+            unzip -q "$TMPDIR/asesrc.zip" -d "$ASEPRITE"
+            echo "Aseprite downloaded and extracted to $ASEPRITE"
+          fi
+
+          echo "== Skia =="
+          if [ -d "$SKIA" ]; then
+            echo "Skia directory already exists: $SKIA"
+          else
+            echo "Skia not found, downloading from: $SKIA_URL"
+            rm -f "$TMPDIR/skia.zip"
+            curl "$SKIA_URL" -L -o "$TMPDIR/skia.zip"
+            mkdir -p "$SKIA"
+            unzip -q "$TMPDIR/skia.zip" -d "$SKIA"
+            echo "Skia downloaded and extracted to $SKIA"
+          fi
+
+      - name: Configure CMake (Apple Silicon)
+        shell: bash
+        env:
+          ARCH: arm64
+        run: |
+          set -euo pipefail
+
+          cd "$ASEPRITE"
+
+          # Clean previous build directory
+          rm -rf build
+          mkdir build
+          cd build
+
+          cmake \
+            -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+            -DCMAKE_BUILD_TYPE=${BUILD_TYPE} \
+            -DCMAKE_OSX_ARCHITECTURES=arm64 \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0 \
+            -DCMAKE_OSX_SYSROOT=/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk \
+            -DLAF_BACKEND=skia \
+            -DSKIA_DIR="$SKIA" \
+            -DSKIA_LIBRARY_DIR="$SKIA/out/Release-arm64" \
+            -DSKIA_LIBRARY="$SKIA/out/Release-arm64/libskia.a" \
+            -DPNG_ARM_NEON:STRING=on \
+            -G Ninja \
+            ..
+
+      - name: Build Aseprite
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$ASEPRITE/build"
+          ninja aseprite
+
+      - name: Create Aseprite.app bundle from template
+        shell: bash
+        id: package
+        run: |
+          set -euo pipefail
+
+          ROOT="$PWD"
+          echo "ROOT (repo): $ROOT"
+
+          if [ ! -d "$ROOT/Aseprite.app.template" ]; then
+            echo "Aseprite.app.template not found at $ROOT/Aseprite.app.template"
+            exit 1
+          fi
+
+          APPDIR="$ROOT/Aseprite.app"
+          mkdir -p "$APPDIR/Contents"
+
+          # Copy template into app bundle
+          cp -R "$ROOT/Aseprite.app.template/." "$APPDIR/Contents/"
+
+          mkdir -p "$APPDIR/Contents/MacOS"
+          mkdir -p "$APPDIR/Contents/Resources"
+
+          # Copy built binary and data into app bundle
+          cp "$ASEPRITE/build/bin/aseprite" "$APPDIR/Contents/MacOS/"
+          cp -R "$ASEPRITE/build/bin/data" "$APPDIR/Contents/Resources/"
+
+          # Update Info.plist version to match latest tag
+          LATEST_TAG="${{ steps.get-latest-tag.outputs.tag }}"
+          sed -i "" "s/1.2.34.1/$LATEST_TAG/" "$APPDIR/Contents/Info.plist" || true
+
+          # Remove quarantine extended attribute, just in case
+          xattr -r -d com.apple.quarantine "$APPDIR" || true
+
+          # Package as zip
+          ARTIFACT_NAME="Aseprite-${LATEST_TAG}-macOS-arm64.zip"
+          echo "Packaging $APPDIR into $ARTIFACT_NAME"
+
+          # Use zip (more common on macOS runners). If you prefer 7z, swap commands.
+          cd "$ROOT"
+          zip -r "$ARTIFACT_NAME" "Aseprite.app"
+
+          echo "artifact_name=$ARTIFACT_NAME" >> $GITHUB_OUTPUT
+
+      - name: Upload artifact (for debugging / manual download)
+        uses: actions/upload-artifact@v4
+        with:
+          name: aseprite-macos-apple-silicon
+          path: ${{ steps.package.outputs.artifact_name }}
+
+  create-release:
+    name: Create GitHub Release and upload asset
+    needs: build-aseprite
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download artifact from build job
+        uses: actions/download-artifact@v4
+        with:
+          name: aseprite-macos-apple-silicon
+          path: dist
+
+      - name: Create GitHub Release (if not exists)
+        uses: ncipollo/release-action@v1
+        with:
+          tag: ${{ needs.build-aseprite.outputs.aseprite-tag }}
+          body: Aseprite-${{ needs.build-aseprite.outputs.aseprite-tag }} for macOS Apple Silicon
+          skipIfReleaseExists: true
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload asset to release
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: dist/${{ needs.build-aseprite.outputs.artifact-name }}
+          asset_name: ${{ needs.build-aseprite.outputs.artifact-name }}
+          tag: ${{ needs.build-aseprite.outputs.aseprite-tag }}
