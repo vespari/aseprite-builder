@@ -151,10 +151,13 @@ jobs:
         working-directory: aseprite
         run: |
           cd build && ninja
-      - name: Clean Up Build folder
+      #       - name: Clean Up Build folder
+      #         working-directory: aseprite/build/bin
+      #         shell: bash
+      #         run: find . -mindepth 1 ! \( -name 'aseprite' -o -name 'aseprite.exe' -o -name 'data' -prune \) -exec rm -rf {} +
+      - name: List Build Binaries
         working-directory: aseprite/build/bin
-        shell: bash
-        run: find . -mindepth 1 ! \( -name 'aseprite' -o -name 'aseprite.exe' -o -name 'data' -prune \) -exec rm -rf {} +
+        run: ls -la
       - name: Create Bundle
         working-directory: aseprite/build/bin
         run: |
