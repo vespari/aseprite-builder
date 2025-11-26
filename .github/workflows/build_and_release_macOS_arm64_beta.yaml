@@ -241,21 +241,21 @@ jobs:
               <string>${{ needs.create-release.outputs.release-tag }}</string>
             </dict>
             </plist>
-            EOF
-                      fi
-                      
-                      # Copy Entitlements.plist if available (optional, for signing)
-                      if [ -f "../../../Entitlements.plist" ]; then
-                        echo "Found provided Entitlements.plist. Copying..."
-                        cp "../../../Entitlements.plist" Aseprite.app/Contents/Entitlements.plist
-                      fi
-                  - name: Create release
-                    working-directory: aseprite/build/bin
-                    run: 7z -tzip a Aseprite-${{ needs.create-release.outputs.release-tag }}-macOS-arm64-beta-app.zip Aseprite.app
-                  - name: Upload release
-                    uses: svenstaro/upload-release-action@v2
-                    with:
-                      repo_token: ${{ secrets.RELEASE_TOKEN }}
-                      file: aseprite/build/bin/Aseprite-${{ needs.create-release.outputs.release-tag }}-macOS-arm64-beta-app.zip
-                      asset_name: Aseprite-${{ needs.create-release.outputs.release-tag }}-macOS-arm64-beta-app.zip
-                      tag: ${{ needs.create-release.outputs.release-tag }}
+          EOF
+          fi
+
+          # Copy Entitlements.plist if available (optional, for signing)
+          if [ -f "../../../Entitlements.plist" ]; then
+            echo "Found provided Entitlements.plist. Copying..."
+            cp "../../../Entitlements.plist" Aseprite.app/Contents/Entitlements.plist
+          fi
+      - name: Create release
+        working-directory: aseprite/build/bin
+        run: 7z -tzip a Aseprite-${{ needs.create-release.outputs.release-tag }}-macOS-arm64-beta-app.zip Aseprite.app
+      - name: Upload release
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.RELEASE_TOKEN }}
+          file: aseprite/build/bin/Aseprite-${{ needs.create-release.outputs.release-tag }}-macOS-arm64-beta-app.zip
+          asset_name: Aseprite-${{ needs.create-release.outputs.release-tag }}-macOS-arm64-beta-app.zip
+          tag: ${{ needs.create-release.outputs.release-tag }}
