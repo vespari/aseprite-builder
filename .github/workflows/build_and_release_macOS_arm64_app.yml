@@ -109,7 +109,7 @@ jobs:
           cp aseprite Aseprite.app/Contents/MacOS/
           cp -r data Aseprite.app/Contents/Resources/
           # Find and copy the icon
-          ICON_PATH=$(find . -name "aseprite.icns" -print -quit)
+          ICON_PATH=$(find ../../data -name "aseprite.icns" -print -quit)
           if [ -n "$ICON_PATH" ]; then
             cp "$ICON_PATH" Aseprite.app/Contents/Resources/aseprite.icns
             echo "Icon found and copied."
