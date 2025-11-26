@@ -20,14 +20,45 @@ jobs:
     steps:
       - name: Fetch Aseprite release link
         id: aseprite-link
-        uses: a1393323447/fetch-release@main
-        with:
-          group: aseprite
-          repo: aseprite
-          match: Aseprite-.*?-beta.*?-Source.zip
-      - name: Print Release Tag
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          echo "Release Tag found: ${{ steps.aseprite-link.outputs.release-tag }}"
+          # Fetch releases from GitHub API
+          RELEASES=$(curl -s -H "Authorization: token $GH_TOKEN" https://api.github.com/repos/aseprite/aseprite/releases)
+
+          # Find the first release (including prereleases) that has an asset matching the beta pattern
+          # We look for "Aseprite-v...-beta...-Source.zip"
+          # Output format: URL|TAG_NAME
+
+          RESULT=$(echo "$RELEASES" | python3 -c "
+          import sys, json, re
+          try:
+              releases = json.load(sys.stdin)
+          except json.JSONDecodeError:
+              sys.exit(1)
+              
+          pattern = re.compile(r'Aseprite-v.*?-beta.*?-Source\.zip')
+          for release in releases:
+              for asset in release.get('assets', []):
+                  if pattern.match(asset['name']):
+                      print(f\"{asset['browser_download_url']}|{release['tag_name']}\")
+                      sys.exit(0)
+          sys.exit(1)
+          ")
+
+          if [ $? -ne 0 ]; then
+            echo "Error: No matching beta release found."
+            exit 1
+          fi
+
+          DOWNLOAD_URL=$(echo "$RESULT" | cut -d'|' -f1)
+          TAG_NAME=$(echo "$RESULT" | cut -d'|' -f2)
+
+          echo "Found download URL: $DOWNLOAD_URL"
+          echo "Found tag: $TAG_NAME"
+
+          echo "download-link=$DOWNLOAD_URL" >> $GITHUB_OUTPUT
+          echo "release-tag=$TAG_NAME" >> $GITHUB_OUTPUT
 
   create-release:
     name: Create Release
@@ -60,7 +91,12 @@ jobs:
       - name: Install Aseprite
         shell: bash
         run: |
-          git clone --recurse-submodules -j8 https://github.com/aseprite/aseprite --branch ${{ needs.create-release.outputs.release-tag }}
+          wget ${{ needs.create-release.outputs.download-link }} -O Aseprite-source.zip
+          unzip Aseprite-source.zip -d aseprite_tmp
+          mkdir aseprite
+          # Move contents from the unzipped directory (which might be named differently) to aseprite/
+          mv aseprite_tmp/*/* aseprite/ || mv aseprite_tmp/* aseprite/
+          rm -rf aseprite_tmp
       - name: Install Skia
         working-directory: aseprite
         shell: bash
@@ -109,7 +145,7 @@ jobs:
           cp aseprite Aseprite.app/Contents/MacOS/
           cp -r data Aseprite.app/Contents/Resources/
           # Find and copy the icon
-          ICON_PATH=$(find . -name "aseprite.icns" -print -quit)
+          ICON_PATH=$(find ../../data -name "aseprite.icns" -print -quit)
           if [ -n "$ICON_PATH" ]; then
             cp "$ICON_PATH" Aseprite.app/Contents/Resources/aseprite.icns
             echo "Icon found and copied."
