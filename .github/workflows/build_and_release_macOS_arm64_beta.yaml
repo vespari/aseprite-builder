@@ -91,12 +91,30 @@ jobs:
       - name: Install Aseprite
         shell: bash
         run: |
+          # 1. Clone the repo using the tag (to get submodules)
+          git clone --recurse-submodules -j8 https://github.com/aseprite/aseprite --branch ${{ needs.create-release.outputs.release-tag }}
+
+          # 2. Download the source zip (which might be newer)
           wget ${{ needs.create-release.outputs.download-link }} -O Aseprite-source.zip
           unzip Aseprite-source.zip -d aseprite_tmp
-          mkdir aseprite
-          # Move contents from the unzipped directory (which might be named differently) to aseprite/
-          mv aseprite_tmp/*/* aseprite/ || mv aseprite_tmp/* aseprite/
-          rm -rf aseprite_tmp
+
+          # 3. Find the source root in the unzipped content
+          # Look for CMakeLists.txt
+          SOURCE_ROOT=$(find aseprite_tmp -name "CMakeLists.txt" -print -quit | xargs dirname)
+          echo "Source root found at: $SOURCE_ROOT"
+
+          if [ -z "$SOURCE_ROOT" ]; then
+            echo "Error: Could not find CMakeLists.txt in downloaded zip"
+            find aseprite_tmp
+            exit 1
+          fi
+
+          # 4. Overlay the zip contents onto the cloned repo
+          # We use cp -R to overwrite
+          cp -R "$SOURCE_ROOT/." aseprite/
+
+          # Cleanup
+          rm -rf aseprite_tmp Aseprite-source.zip
       - name: Install Skia
         working-directory: aseprite
         shell: bash
