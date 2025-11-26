@@ -175,38 +175,74 @@ jobs:
           if [ ! -d "Aseprite.app/Contents/Resources/data" ]; then
              cp -r data Aseprite.app/Contents/Resources/
           fi
+
+          # DEBUG: List potential icon locations
+          echo "Listing ../../data:"
+          ls -R ../../data | grep "aseprite.icns" || echo "Icon not found in ls -R"
+
           # Find and copy the icon
-          ICON_PATH=$(find ../../data -name "aseprite.icns" -print -quit)
+          # We search in the source root (../../)
+          # Try both lowercase and capitalized icns, then fallback to ico
+          ICON_PATH=$(find ../.. -name "aseprite.icns" -o -name "Aseprite.icns" -print -quit)
+
           if [ -n "$ICON_PATH" ]; then
+            echo "Found ICON_PATH: $ICON_PATH"
             cp "$ICON_PATH" Aseprite.app/Contents/Resources/aseprite.icns
-            echo "Icon found and copied."
+            echo "Icon copied to Aseprite.app/Contents/Resources/aseprite.icns"
           else
-            echo "Icon not found."
+            echo "ICNS file not found. Looking for ase.ico..."
+            ICO_PATH=$(find ../.. -name "ase.ico" -print -quit)
+            if [ -n "$ICO_PATH" ]; then
+                echo "Found ICO_PATH: $ICO_PATH"
+                # Convert .ico to .icns using sips
+                # sips might not support direct ico->icns perfectly, but we'll try to convert to png first then icns or just let sips handle it
+                # A simple approach: Convert to png, then to icns (sips can write icns)
+                sips -s format icns "$ICO_PATH" --out Aseprite.app/Contents/Resources/aseprite.icns
+                if [ $? -eq 0 ]; then
+                    echo "Successfully converted ase.ico to aseprite.icns"
+                else
+                    echo "Conversion failed. Copying ase.ico as is (might not work)."
+                    cp "$ICO_PATH" Aseprite.app/Contents/Resources/aseprite.icns
+                fi
+            else
+                echo "WARNING: Neither aseprite.icns nor ase.ico found. Proceeding without icon."
+            fi
           fi
-          cat > Aseprite.app/Contents/Info.plist <<EOF
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0">
-          <dict>
-            <key>CFBundleExecutable</key>
-            <string>aseprite</string>
-            <key>CFBundleIdentifier</key>
-            <string>org.aseprite.aseprite</string>
-            <key>CFBundleName</key>
-            <string>Aseprite</string>
-            <key>CFBundleVersion</key>
-            <string>${{ needs.create-release.outputs.release-tag }}</string>
-            <key>CFBundleIconFile</key>
-            <string>aseprite.icns</string>
-            <key>CFBundlePackageType</key>
-            <string>APPL</string>
-            <key>CFBundleSignature</key>
-            <string>????</string>
-            <key>CFBundleShortVersionString</key>
-            <string>${{ needs.create-release.outputs.release-tag }}</string>
-          </dict>
-          </plist>
-          EOF
+
+          # Copy provided Info.plist if available
+          # The workflow checks out the repo to the root, so Info.plist should be in ${{ github.workspace }}
+          # But we are in aseprite/build/bin, so we need to reference it relative or absolute
+
+          if [ -f "../../../Info.plist" ]; then
+            echo "Found provided Info.plist. Copying..."
+            cp "../../../Info.plist" Aseprite.app/Contents/Info.plist
+          else
+            echo "WARNING: Info.plist not found in repo root. Generating default."
+            cat > Aseprite.app/Contents/Info.plist <<EOF
+            <?xml version="1.0" encoding="UTF-8"?>
+            <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+            <plist version="1.0">
+            <dict>
+              <key>CFBundleExecutable</key>
+              <string>aseprite</string>
+              <key>CFBundleIdentifier</key>
+              <string>org.aseprite.aseprite</string>
+              <key>CFBundleName</key>
+              <string>Aseprite</string>
+              <key>CFBundleVersion</key>
+              <string>${{ needs.create-release.outputs.release-tag }}</string>
+              <key>CFBundleIconFile</key>
+              <string>aseprite.icns</string>
+              <key>CFBundlePackageType</key>
+              <string>APPL</string>
+              <key>CFBundleSignature</key>
+              <string>????</string>
+              <key>CFBundleShortVersionString</key>
+              <string>${{ needs.create-release.outputs.release-tag }}</string>
+            </dict>
+            </plist>
+            EOF
+          fi
       - name: Create release
         working-directory: aseprite/build/bin
         run: 7z -tzip a Aseprite-${{ needs.create-release.outputs.release-tag }}-macOS-arm64-beta-app.zip Aseprite.app
